@@ -1,4 +1,4 @@
-use std::{collections::{BTreeMap, HashMap, VecDeque}, hash::Hash, ptr::null, vec}; //used to store the users array in memory
+use std::{collections::{BTreeMap, HashMap, VecDeque}, hash::Hash, os::macos::raw::stat, ptr::null, vec}; //used to store the users array in memory
 use axum::{
     Json, 
     Router, 
@@ -115,6 +115,10 @@ enum DbCommand {
         delta_balance: u64,
         delta_holdings: u64,
         response_status: oneshot::Sender<OnRampDbResponseType>
+    },
+    CheckUser{
+        user_email: String,
+        response_status: oneshot::Sender<CheckUserDbResponseType>
     }
     // UpdateBalance { email: String, amount: u32 },
 }
@@ -167,8 +171,8 @@ enum OrderbookCommand {
 }
 #[derive(Deserialize)]
 struct Order{
-    qty: u32,
-    price: u32,
+    qty: u64,
+    price: u64,
     side: Side
 }
 struct User{
@@ -181,6 +185,15 @@ struct User{
 struct MarketBook {
     bids: BTreeMap<u64, VecDeque<Order>>,
     asks: BTreeMap<u64, VecDeque<Order>>,
+}
+
+impl MarketBook {
+    fn new() -> Self {
+        Self {
+            bids: BTreeMap::new(),
+            asks: BTreeMap::new(),
+        }
+    }
 }
 
 // impl MarketBook {
@@ -211,6 +224,10 @@ struct OnRampDbResponseType{
     holdings: u64
 }
 
+struct CheckUserDbResponseType{
+    user_exists: bool
+}
+
 #[derive(Deserialize)]
 pub struct OnRampHttpRequest{
     pub user_email: String,
@@ -220,6 +237,7 @@ pub struct OnRampHttpRequest{
 
 #[derive(Deserialize)]
 pub struct CreateMarketOrderRequest{
+    pub market_id: String,
     pub user_email: String,
     pub order: Order,
 }
@@ -230,12 +248,12 @@ pub struct CreateMarketOrderResponse{
     pub status: StatusCode
 }
 
-// impl IntoResponse for OnRampHttpRequest {        //This is to implement IntoResponse functionality so that axum can use it in http body
-//     fn into_response(self) -> Response {
-//         let body = Json(serde_json::json!({"Message": self.message}));
-//         (self.status, body).into_response()
-//     }
-// }
+impl IntoResponse for CreateMarketOrderResponse{
+    fn into_response(self) -> Response {
+                let body = Json(serde_json::json!({"Message": self.message}));
+                (self.status, body).into_response()
+            }
+}
 
 
 async fn user_db_actor(mut rx: mpsc::Receiver<DbCommand>){
@@ -299,44 +317,146 @@ async fn user_db_actor(mut rx: mpsc::Receiver<DbCommand>){
                 };
                 let _ = response_status.send(status);
             }
+            DbCommand::CheckUser { user_email, response_status } => {
+                let response = CheckUserDbResponseType { user_exists: users.contains_key(&user_email) };
+                let _ = response_status.send(response);
+            }
         }
     }
 }
 
-async fn orderbook_actor(mut rx: mpsc::Receiver<OrderbookCommand>){
+async fn orderbook_actor(mut rx: mpsc::Receiver<OrderbookCommand>, db_tx: DbSender){
     let mut order_book: HashMap<String, MarketBook>= HashMap::new();
 
+    let order_book_1 = MarketBook::new();
+    order_book.insert("1".to_string(), order_book_1);
+
     println!("MarketBookDbActor Started");
+    println!("Initialized first market with id = 1");
 
     while let Some(cmd) = rx.recv().await{
         match cmd {
             OrderbookCommand::NewLimitOrder { market_id, user_id, side, qty, price, resp } => {
-                if order_book.contains_key(&market_id){
+                let response = if order_book.contains_key(&market_id){
+                    let (oneshot_tx, oneshot_rx) = oneshot::channel();
+                    let check_user = db_tx.send(DbCommand::CheckUser { user_email: user_id, response_status: oneshot_tx }).await;
+                    match oneshot_rx.await {
+                        Ok(response) => {
+                            if (response.user_exists) {
+                                println!("User exits");
+                                OrderbookResponse {
+                                    status: "User Does Exist".to_string(),
+                                    fills: vec![],
+                                    remaining_qty: 0,
+                                    bids: None,
+                                    asks: None
+                                }
+                            } else {
+                                println!("User does not exists.");
+                                OrderbookResponse{
+                                    status: "User Does Not Exists".to_string(),
+                                    fills: vec![],
+                                    remaining_qty: 0,
+                                    bids: None,
+                                    asks: None
+                                }
+                            }
+                        }
+                        Err(response) => {
+                            print("Error finding User in the database");
+                                OrderbookResponse{
+                                    status: "Error finding User in the data base".to_string(),
+                                    fills: vec![],
+                                    remaining_qty: 0,
+                                    bids: None,
+                                    asks: None
+                                }
+                        }
+                    }
+                    
+
+                    println!("Market {} exists, inserting order...", market_id);
+                    OrderbookResponse{
+                        status: "Order added Successfull".to_string(),
+                        fills: vec![],
+                        remaining_qty: 0,
+                        bids: None,
+                        asks: None
+                    }
 
                 } else {
                     println!("Market with Market id = {}, does not exist", market_id);
-                    let response: = OrderbookResponse {
+                    OrderbookResponse {
                         status: "Market does not exist".to_string(),
                         fills: vec![] ,
                         remaining_qty: 0,
                         bids: None,
                         asks: None
-                    };
+                    }
                 };
                 let _ = resp.send(response);
+            }
+            OrderbookCommand::NewMarketOrder { market_id, user_id, side, qty, resp } => {
+                let response = if order_book.contains_key(&market_id){
+                    
+                    //Todo Create Market Order
+
+                    println!("Market {} exists, inserting order...", market_id);
+                    OrderbookResponse{
+                        status: "Order added Successfull".to_string(),
+                        fills: vec![],
+                        remaining_qty: 0,
+                        bids: None,
+                        asks: None
+                    }
+
+                } else {
+                    println!("Market with Market id = {}, does not exist", market_id);
+                    OrderbookResponse {
+                        status: "Market does not exist".to_string(),
+                        fills: vec![] ,
+                        remaining_qty: 0,
+                        bids: None,
+                        asks: None
+                    }
+                };
+                let _ = resp.send(response);
+            }
+            OrderbookCommand::GetBook { market_id, resp } => {
+                let response = if order_book.contains_key(&market_id){
+                        println!("Market Exists , id = {}", market_id);
+                        OrderbookResponse{
+                            status: "This is the current status of the orderBook".to_string(),
+                            fills: vec![],
+                            remaining_qty: 0,
+                            bids: None,
+                            asks: None
+                        } 
+                    } else{
+                        println!("Market does not exists, id = {}", market_id);
+                        OrderbookResponse { 
+                            status: "Market Does not exists".to_string(), 
+                            fills: vec![], 
+                            remaining_qty: 0, 
+                            bids: None,
+                            asks: None
+                         }
+                    };
             }
         }
     }
 }
 
 
+
 async fn signup_function(
-    State(db_tx): State<DbSender>,
+    State(state): State<AppState>,
     Json(payload): Json<AuthRequest>
 ) -> AuthResponse{
+    let db_tx = state.db_tx;
     let (oneshot_tx, oneshot_rx) = oneshot::channel();
     println!("{}", String::from("thread reached here"));
-    let create_user = db_tx.send(DbCommand::Signup{email: payload.email.clone(), password: payload.password, response_status:oneshot_tx}).await;
+    let _ = db_tx.send(DbCommand::Signup{email: payload.email.clone(), password: payload.password, response_status:oneshot_tx}).await;
     match oneshot_rx.await {
         Ok(response) => {
             if response.status.contains("already exists") {
@@ -352,11 +472,12 @@ async fn signup_function(
 }
 
 async fn signin_function(
-    State(db_tx): State<DbSender>,
+    State(state): State<AppState>,
     Json(payload): Json<AuthRequest>
 ) -> AuthResponse{
+    let db_tx = state.db_tx;
     let (oneshot_tx, oneshot_rx) = oneshot::channel(); //we declared a oneshot to send it to the db_actor to receive back response
-    let check_user = db_tx.send(DbCommand::Signin{
+    let _ = db_tx.send(DbCommand::Signin{
         email: payload.email.clone(),
         password: payload.password,
         response_status:oneshot_tx}
@@ -377,11 +498,12 @@ async fn signin_function(
 }
 
 async fn onramp_function(
-    State(db_tx):State<DbSender>,
+    State(state):State<AppState>,
     Json(payload):Json<OnRampHttpRequest>
 ) -> OnRampResponse {
+    let db_tx = state.db_tx;
     let (oneshot_tx, oneshot_rx) = oneshot::channel();
-    let update_userbalance = db_tx.send(DbCommand::OnRamp{
+    let _ = db_tx.send(DbCommand::OnRamp{
         user_email: payload.user_email.clone(),
         delta_balance: payload.balance,
         delta_holdings: payload.holding,
@@ -403,11 +525,44 @@ async fn onramp_function(
 }
 
 async fn create_limit_order_function(
-    State(db_tx): State<OrderbookCommand>,
+    State(state): State<AppState>,
     Json(payload): Json<CreateMarketOrderRequest>
 ) -> CreateMarketOrderResponse{
+    let ob_tx = state.ob_tx;
     let (oneshot_tx, oneshot_rx) = oneshot::channel();
-    let order_created = 
+    let _ = ob_tx.send(OrderbookCommand::NewLimitOrder { 
+        market_id: payload.market_id, 
+        user_id: payload.user_email,
+        side: payload.order.side, 
+        qty: payload.order.qty, 
+        price: payload.order.price, 
+        resp: oneshot_tx 
+    }).await;
+
+    match oneshot_rx.await {
+        Ok(response) => {
+            if response.status.contains("Successfull"){
+                CreateMarketOrderResponse{
+                    message: "Market Order Created".to_string(),
+                    trades: response.fills,
+                    status: StatusCode::OK
+                }
+            } else {
+                CreateMarketOrderResponse { 
+                    message: response.status.to_string(), 
+                    trades: vec![], 
+                    status: StatusCode::EXPECTATION_FAILED}
+            }
+        },
+        Err(response) => {
+            CreateMarketOrderResponse{
+                message:"Error Creating Market Order".to_string(),
+                trades: vec![],
+                status: StatusCode::INTERNAL_SERVER_ERROR
+            }
+        }
+
+    }
 
 }
 
@@ -423,7 +578,7 @@ async fn main() {
     let (tx, rx) = mpsc::channel::<DbCommand>(32); // defining an mpsc channel
     tokio::spawn(user_db_actor(rx));
     let (tx2, rx2 ) = mpsc::channel::<OrderbookCommand>(32);
-    tokio::spawn(orderbook_actor(rx2));
+    tokio::spawn(orderbook_actor(rx2, tx.clone()));
     // let ob_tx = tx2.clone();
     // let db_tx = tx.clone();
     // build our application with a single route
