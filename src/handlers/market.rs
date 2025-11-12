@@ -31,22 +31,20 @@ pub async fn get_order_book_handler(
                 match oneshot_rx.await {
                     Ok(response) => {
                         if response.status.contains("Successfull") {
-                            let (bids, asks) = match (response.bids, response.asks) {
-                                _ => (Some(vec![]), Some(vec![]))
-                            };
-                            
+
                             GetOrderBookResponse {
                                 status: StatusCode::OK,
                                 message: "Succesfully fetched the Order Book".to_string(),
-                                bids,
-                                asks
+                                bids: response.bids,
+                                asks: response.asks
                             }
+
                         } else {
                             GetOrderBookResponse { 
                                 status: StatusCode::NOT_FOUND, 
                                 message: "Error fetching Order Book".to_string(), 
-                                bids: Some(vec![]), 
-                                asks: Some(vec![])
+                                bids: None, 
+                                asks: None
                             }
                         }
                     } 
@@ -54,8 +52,8 @@ pub async fn get_order_book_handler(
                         GetOrderBookResponse { 
                             status: StatusCode::INTERNAL_SERVER_ERROR, 
                             message: e.to_string(), 
-                            bids: Some(vec![]), 
-                            asks: Some(vec![])
+                            bids: None,
+                            asks: None
                         }
                     }
                 }
@@ -63,8 +61,8 @@ pub async fn get_order_book_handler(
                 GetOrderBookResponse { 
                     status: StatusCode::NOT_ACCEPTABLE, 
                     message: "User does not exist".to_string(), 
-                    bids: Some(vec![]), 
-                    asks: Some(vec![])
+                    bids: None, 
+                    asks: None
                 }
             }
         } 
@@ -72,8 +70,8 @@ pub async fn get_order_book_handler(
             GetOrderBookResponse { 
                 status: StatusCode::INTERNAL_SERVER_ERROR, 
                 message: e.to_string(), 
-                bids: Some(vec![]), 
-                asks: Some(vec![])
+                bids: None, 
+                asks: None
             }
         }
     }

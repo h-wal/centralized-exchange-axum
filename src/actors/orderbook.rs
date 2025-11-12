@@ -76,9 +76,10 @@ pub async fn start_orderbook_actor(mut rx: mpsc::Receiver<OrderbookCommand>, db_
                                     }
 
                                     Side::Bid => {
-
-
                                         
+                                        let order = Order { user_id, qty, price, side };
+
+                                        order_book.get_mut(&market_id).unwrap().insert_order(order);
 
                                         OrderbookResponse {
                                             status: "Order added Successfull".to_string(),
@@ -87,7 +88,8 @@ pub async fn start_orderbook_actor(mut rx: mpsc::Receiver<OrderbookCommand>, db_
                                             bids: None,
                                             asks: None
                                         }
-                                    }
+
+                                    } 
                                     
                                     Side::Ask if qty > user.holdings => {
                                         OrderbookResponse {
@@ -111,9 +113,6 @@ pub async fn start_orderbook_actor(mut rx: mpsc::Receiver<OrderbookCommand>, db_
                                 };
 
                                 response
-
-
-
                             }
                             
                             None => {
@@ -179,6 +178,10 @@ pub async fn start_orderbook_actor(mut rx: mpsc::Receiver<OrderbookCommand>, db_
                     println!("Market Exists , id = {}", market_id);
 
                     if let Some(book) = order_book.get(&market_id) {
+
+                        println!("Bids: {:#?}", book.bids);
+                        println!("Asks: {:#?}", book.asks);
+                        
                         OrderbookResponse {
                             status: "Successfull! This is the current status of the orderBook".to_string(),
                             fills: vec![],

@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, VecDeque};
+
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -5,7 +7,7 @@ use axum::{
 };
 use serde::Serialize;
 use serde_json::json;
-use crate::domain::Trade;
+use crate::domain::{Order, Trade};
 
 /// Used by `/signup` and `/signin` routes
 #[derive(Serialize)]
@@ -114,8 +116,8 @@ impl IntoResponse for CreateMarketOrderResponse {
 #[derive(Serialize)]
 pub struct GetOrderBookResponse {
     pub message: String,
-    pub bids: Option<Vec<crate::domain::Order>>,
-    pub asks: Option<Vec<crate::domain::Order>>,
+    pub bids: Option<BTreeMap<u64, VecDeque<Order>>>,
+    pub asks: Option<BTreeMap<u64, VecDeque<Order>>>,
     #[serde(skip_serializing)]
     pub status: StatusCode,
 }
