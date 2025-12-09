@@ -51,15 +51,7 @@ curl -X POST localhost:4000/createLimitOrder -d '{"market_id":1,"user_email":"al
 curl -X POST localhost:4000/getorderbook -d '{"user_email":"alice@test.com","market_id":1}' -H "Content-Type: application/json"
 ```
 
-## Notes & limitations (intentional for demo)
-- State is in-memory; restart loses users, balances, orders, markets.
-- Passwords are stored in plaintext; no sessions/JWT or auth middleware.
-- No persistence, durability, rate limiting, or observability; single-node only.
-- Matching is best-effort with simple price/qty checks; no deterministic sequencing beyond per-price FIFO.
-
-## Possible next steps (if you want to extend)
-- Add password hashing (argon2) and JWT auth; guard trading routes.
-- Backed persistence (SQLite/Postgres) for users, balances, orders, trades.
-- Deterministic matching with sequence IDs and stronger invariants/tests.
-- Basic metrics/logging and a `/health` endpoint.
+## Notes
+- State is in-memory;
+- Matching is best-effort with price/qty checks; per-price FIFO.
 
